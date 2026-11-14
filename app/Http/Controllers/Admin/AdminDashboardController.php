@@ -6,6 +6,7 @@ use App\Enums\AttendanceStatus;
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
+use App\Models\Order;
 use App\Models\User;
 use App\Models\Visit;
 use App\Support\BusinessTime;
@@ -64,6 +65,10 @@ class AdminDashboardController extends Controller
 
         $totalSessions = (int) ($summary->total_sessions ?? 0);
 
+        // Drives the pending-orders badge on the Shops tab, which is where
+        // the queue itself lives.
+        $pendingOrders = Order::query()->where('status', 'pending')->count();
+
         return response()->json([
             'data' => [
                 'date' => $date,
@@ -75,6 +80,7 @@ class AdminDashboardController extends Controller
                 'not_started' => max(0, $activeEmployees - $totalSessions),
                 'tracking_interrupted' => $interrupted,
                 'visits_today' => $visits,
+                'pending_orders' => $pendingOrders,
                 'distance_km_today' => round((int) ($summary->distance_meters ?? 0) / 1000, 3),
                 'distance_meters_today' => (int) ($summary->distance_meters ?? 0),
                 'visits_from_attendance' => (int) ($summary->visits ?? 0),

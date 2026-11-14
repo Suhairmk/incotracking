@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Employee\StoreShopRequest;
 use App\Http\Resources\ShopResource;
 use App\Models\Shop;
+use App\Rules\ValidGstin;
 use App\Support\Geo;
+use App\Support\Gstin;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -60,6 +62,7 @@ class EmployeeShopController extends Controller
             'address' => $this->nullIfEmpty($data['address'] ?? null),
             'phone' => $this->nullIfEmpty($data['phone'] ?? null),
             'notes' => $this->nullIfEmpty($data['notes'] ?? null),
+            'gst_number' => Gstin::normalize($data['gst_number'] ?? null),
             'latitude_e7' => Geo::toE7((float) $data['latitude']),
             'longitude_e7' => Geo::toE7((float) $data['longitude']),
             'accuracy_meters' => isset($data['accuracy_meters']) ? (int) $data['accuracy_meters'] : null,
@@ -93,6 +96,7 @@ class EmployeeShopController extends Controller
             'address' => $this->nullIfEmpty($data['address'] ?? null),
             'phone' => $this->nullIfEmpty($data['phone'] ?? null),
             'notes' => $this->nullIfEmpty($data['notes'] ?? null),
+            'gst_number' => Gstin::normalize($data['gst_number'] ?? null),
             'latitude_e7' => Geo::toE7((float) $data['latitude']),
             'longitude_e7' => Geo::toE7((float) $data['longitude']),
             'accuracy_meters' => isset($data['accuracy_meters']) ? (int) $data['accuracy_meters'] : null,
@@ -113,6 +117,34 @@ class EmployeeShopController extends Controller
     }
 
     /**
+     * Advisory lookup behind the shop form: which entries already carry this
+     * GSTIN? A shared number is legitimate for multi-outlet businesses, so the
+     * answer warns and never blocks a save.
+     */
+    public function gstCheck(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'gst_number' => ['required', 'string', new ValidGstin],
+            'ignore_id' => ['nullable', 'integer', 'exists:shops,id'],
+        ]);
+
+        $gstin = Gstin::normalize($validated['gst_number']);
+
+        $matches = Shop::query()
+            ->where('gst_number', $gstin)
+            ->when($validated['ignore_id'] ?? null, fn (Builder $query, int $id) => $query->whereKeyNot($id))
+            ->orderBy('name')
+            ->get(['id', 'name', 'location_name']);
+
+        return response()->json([
+            'data' => [
+                'gst_number' => $gstin,
+                'duplicates' => $matches->values()->all(),
+            ],
+        ]);
+    }
+
+    /**
      * @param  array<string, mixed>  $validated
      */
     protected function filteredQuery(array $validated, ?int $viewerId = null): Builder
@@ -127,7 +159,10 @@ class EmployeeShopController extends Controller
 
             $query->where(function (Builder $query) use ($term): void {
                 $query->where('name', 'like', $term)
-                    ->orWhere('location_name', 'like', $term);
+                    ->orWhere('location_name', 'like', $term)
+                    // GST numbers are stored uppercase, so matching the
+                    // uppercased term finds them without a function per row.
+                    ->orWhere('gst_number', 'like', mb_strtoupper($term));
             });
         }
 

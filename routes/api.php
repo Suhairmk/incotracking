@@ -5,6 +5,8 @@ use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminEmployeeController;
 use App\Http\Controllers\Admin\AdminLiveLocationController;
 use App\Http\Controllers\Admin\AdminNotificationController;
+use App\Http\Controllers\Admin\AdminOrderController;
+use App\Http\Controllers\Admin\AdminProductController;
 use App\Http\Controllers\Admin\AdminReportController;
 use App\Http\Controllers\Admin\AdminRouteController;
 use App\Http\Controllers\Admin\AdminShopController;
@@ -13,6 +15,8 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Employee\DeviceTokenController;
 use App\Http\Controllers\Employee\EmployeeAttendanceController;
 use App\Http\Controllers\Employee\EmployeeDashboardController;
+use App\Http\Controllers\Employee\EmployeeOrderController;
+use App\Http\Controllers\Employee\EmployeeReferenceDataController;
 use App\Http\Controllers\Employee\EmployeeShopController;
 use App\Http\Controllers\Employee\EmployeeTrackingController;
 use App\Http\Controllers\Employee\EmployeeVisitController;
@@ -48,7 +52,12 @@ Route::prefix('v1')->group(function () {
         Route::prefix('employee')->middleware(['role:employee', 'throttle:api'])->group(function () {
             Route::get('dashboard', EmployeeDashboardController::class);
 
+            // Whole directory + active catalogue in one call: the offline
+            // cache the order form reads from when there is no network.
+            Route::get('reference-data', EmployeeReferenceDataController::class);
+
             Route::get('shops', [EmployeeShopController::class, 'index']);
+            Route::get('shops/gst-check', [EmployeeShopController::class, 'gstCheck']);
             Route::post('shops', [EmployeeShopController::class, 'store']);
             Route::get('shops/{shop}', [EmployeeShopController::class, 'show']);
             Route::put('shops/{shop}', [EmployeeShopController::class, 'update']);
@@ -71,6 +80,12 @@ Route::prefix('v1')->group(function () {
             Route::post('visits', [EmployeeVisitController::class, 'store'])
                 ->middleware('throttle:uploads');
             Route::get('visits/{visit}', [EmployeeVisitController::class, 'show']);
+
+            Route::get('orders', [EmployeeOrderController::class, 'index']);
+            Route::post('orders', [EmployeeOrderController::class, 'store'])
+                ->middleware('throttle:uploads');
+            Route::get('orders/{order}', [EmployeeOrderController::class, 'show']);
+            Route::patch('orders/{order}/status', [EmployeeOrderController::class, 'updateStatus']);
 
             Route::post('device-token', [DeviceTokenController::class, 'store']);
             Route::delete('device-token', [DeviceTokenController::class, 'destroy']);
@@ -102,6 +117,15 @@ Route::prefix('v1')->group(function () {
             Route::get('shops', [AdminShopController::class, 'index']);
             Route::get('shops/{shop}', [AdminShopController::class, 'show']);
             Route::delete('shops/{shop}', [AdminShopController::class, 'destroy']);
+
+            Route::get('products', [AdminProductController::class, 'index']);
+            Route::post('products', [AdminProductController::class, 'store']);
+            Route::put('products/{product}', [AdminProductController::class, 'update']);
+            Route::delete('products/{product}', [AdminProductController::class, 'destroy']);
+
+            Route::get('orders', [AdminOrderController::class, 'index']);
+            Route::get('orders/{order}', [AdminOrderController::class, 'show']);
+            Route::patch('orders/{order}/status', [AdminOrderController::class, 'updateStatus']);
 
             Route::get('reports/daily', [AdminReportController::class, 'daily']);
             Route::get('reports/attendance', [AdminReportController::class, 'attendance']);

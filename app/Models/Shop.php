@@ -22,6 +22,7 @@ class Shop extends Model
         'address',
         'phone',
         'notes',
+        'gst_number',
         'latitude_e7',
         'longitude_e7',
         'accuracy_meters',

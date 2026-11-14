@@ -18,6 +18,7 @@ class ShopResource extends JsonResource
             'address' => $this->address,
             'phone' => $this->phone,
             'notes' => $this->notes,
+            'gst_number' => $this->gst_number,
             'latitude' => Geo::fromE7($this->latitude_e7),
             'longitude' => Geo::fromE7($this->longitude_e7),
             'accuracy_meters' => $this->accuracy_meters,
