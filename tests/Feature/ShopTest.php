@@ -12,10 +12,11 @@ class ShopTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_employee_adds_a_shop_and_a_colleague_sees_it(): void
+    public function test_employee_adds_a_shop_and_a_colleague_sees_it_once_granted(): void
     {
         $author = User::factory()->create();
         $colleague = User::factory()->create();
+        $admin = User::factory()->admin()->create();
 
         Sanctum::actingAs($author);
 
@@ -25,19 +26,40 @@ class ShopTest extends TestCase
             'location_name' => 'Indiranagar',
             'address' => '100 ft Road, Bengaluru',
             'phone' => '9845012345',
+            'whatsapp_number' => '9845012345',
             'latitude' => 12.9716,
             'longitude' => 77.5946,
             'accuracy_meters' => 14,
         ]);
 
         $response->assertCreated()->assertJsonPath('data.name', 'Sri Balaji Motors');
+        $shopId = $response->json('data.id');
         $this->assertDatabaseHas('shops', [
-            'id' => $response->json('data.id'),
+            'id' => $shopId,
             'created_by' => $author->id,
             'type' => 'dealer',
         ]);
+        // Creating it granted the author a seat on the access list.
+        $this->assertDatabaseHas('shop_employee_access', [
+            'shop_id' => $shopId,
+            'employee_id' => $author->id,
+        ]);
 
-        // A different executive sees shops they did not create.
+        // A colleague has not been granted this shop, so their directory
+        // starts empty rather than leaking everyone else's entries.
+        Sanctum::actingAs($colleague);
+
+        $this->getJson('/api/v1/employee/shops')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+
+        // The administrator shares it, and only then does it appear.
+        Sanctum::actingAs($admin);
+
+        $this->putJson("/api/v1/admin/shops/{$shopId}/access", [
+            'employee_ids' => [$colleague->id],
+        ])->assertOk()->assertJsonPath('data.staff.0.id', $colleague->id);
+
         Sanctum::actingAs($colleague);
 
         $this->getJson('/api/v1/employee/shops')
@@ -222,7 +244,7 @@ class ShopTest extends TestCase
             'latitude' => 999,
             'longitude' => 77.5946,
         ])->assertUnprocessable()
-            ->assertJsonValidationErrors(['name', 'type', 'location_name', 'latitude']);
+            ->assertJsonValidationErrors(['name', 'type', 'location_name', 'latitude', 'whatsapp_number']);
 
         // The shared directory is readable without creating anything.
         $this->getJson('/api/v1/employee/shops')->assertOk()->assertJsonCount(0, 'data');

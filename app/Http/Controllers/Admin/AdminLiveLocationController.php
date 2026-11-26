@@ -34,7 +34,7 @@ class AdminLiveLocationController extends Controller
             ->limit(500)
             ->get();
 
-        $locations = $attendances->map(function (Attendance $attendance) {
+        $locations = $attendances->map(function (Attendance $attendance) use ($request) {
             $live = $attendance->liveLocation ?? new EmployeeLiveLocation([
                 'employee_id' => $attendance->employee_id,
                 'attendance_id' => $attendance->id,

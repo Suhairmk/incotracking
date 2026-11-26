@@ -18,6 +18,8 @@ class OrderItemResource extends JsonResource
             'unit_price_paise' => $this->unit_price_paise,
             'quantity' => $this->quantity,
             'line_total_paise' => $this->line_total_paise,
+            'line_tax_paise' => $this->line_tax_paise,
+            'tax_rate_bp' => $this->tax_rate_bp,
         ];
     }
 }

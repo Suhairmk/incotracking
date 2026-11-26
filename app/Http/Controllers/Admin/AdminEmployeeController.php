@@ -11,6 +11,7 @@ use App\Http\Requests\Admin\UploadPhotoRequest;
 use App\Http\Resources\AttendanceResource;
 use App\Http\Resources\UserResource;
 use App\Models\Attendance;
+use App\Models\Shop;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\ImageStorageService;
@@ -115,6 +116,11 @@ class AdminEmployeeController extends Controller
         }
 
         $this->logger->log('admin.employee_created', $request->user(), $employee);
+
+        // A new executive starts with the same directory the existing team
+        // has: every shop currently visible in the field. Individual shops
+        // can be withdrawn from the shop's access screen afterwards.
+        Shop::grantVisibleShopsTo([$employee->id]);
 
         return response()->json([
             'data' => new UserResource($employee),

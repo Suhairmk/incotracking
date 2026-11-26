@@ -18,7 +18,11 @@ class Order extends Model
         'shop_id',
         'employee_id',
         'status',
+        'business_date',
         'total_paise',
+        'subtotal_paise',
+        'tax_paise',
+        'tax_rate_bp',
         'notes',
         'device_created_at',
         'server_recorded_at',
@@ -32,7 +36,11 @@ class Order extends Model
     {
         return [
             'status' => OrderStatus::class,
+            'business_date' => 'date',
             'total_paise' => 'integer',
+            'subtotal_paise' => 'integer',
+            'tax_paise' => 'integer',
+            'tax_rate_bp' => 'integer',
             'device_created_at' => 'datetime',
             'server_recorded_at' => 'datetime',
             'delivered_at' => 'datetime',
@@ -68,5 +76,14 @@ class Order extends Model
     public function isPending(): bool
     {
         return $this->status === OrderStatus::Pending;
+    }
+
+    /**
+     * Whether this order carries GST. Orders placed before the tax rollout
+     * keep a zero rate and their original totals for ever.
+     */
+    public function isTaxed(): bool
+    {
+        return ($this->tax_rate_bp ?? 0) > 0;
     }
 }

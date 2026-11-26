@@ -28,6 +28,7 @@ class ShopFactory extends Factory
             ]),
             'address' => fake()->streetAddress(),
             'phone' => fake()->numerify('9#########'),
+            'whatsapp_number' => '91'.fake()->numerify('9#########'),
             'notes' => fake()->optional()->sentence(),
             'latitude_e7' => (int) round($latitude * 10_000_000),
             'longitude_e7' => (int) round($longitude * 10_000_000),

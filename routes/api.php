@@ -1,23 +1,31 @@
 <?php
 
 use App\Http\Controllers\Admin\AdminAttendanceController;
+use App\Http\Controllers\Admin\AdminCompanySettingsController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminEmployeeController;
 use App\Http\Controllers\Admin\AdminLiveLocationController;
 use App\Http\Controllers\Admin\AdminNotificationController;
+use App\Http\Controllers\Admin\AdminOdometerClaimController;
 use App\Http\Controllers\Admin\AdminOrderController;
 use App\Http\Controllers\Admin\AdminProductController;
 use App\Http\Controllers\Admin\AdminReportController;
 use App\Http\Controllers\Admin\AdminRouteController;
 use App\Http\Controllers\Admin\AdminShopController;
+use App\Http\Controllers\Admin\AdminShopCreditController;
+use App\Http\Controllers\Admin\AdminTargetController;
+use App\Http\Controllers\Admin\AdminTransactionImportController;
 use App\Http\Controllers\Admin\AdminVisitController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Employee\DeviceTokenController;
 use App\Http\Controllers\Employee\EmployeeAttendanceController;
 use App\Http\Controllers\Employee\EmployeeDashboardController;
+use App\Http\Controllers\Employee\EmployeeOdometerClaimController;
 use App\Http\Controllers\Employee\EmployeeOrderController;
+use App\Http\Controllers\Employee\EmployeePerformanceController;
 use App\Http\Controllers\Employee\EmployeeReferenceDataController;
 use App\Http\Controllers\Employee\EmployeeShopController;
+use App\Http\Controllers\Employee\EmployeeShopCreditController;
 use App\Http\Controllers\Employee\EmployeeTrackingController;
 use App\Http\Controllers\Employee\EmployeeVisitController;
 use App\Http\Controllers\PhotoController;
@@ -35,6 +43,10 @@ Route::prefix('v1')->group(function () {
         Route::post('auth/logout', [AuthController::class, 'logout']);
 
         Route::middleware('throttle:api')->group(function () {
+            // Read-only for every signed-in user: it is the header printed
+            // on shared PDFs. Only administrators may change it (below).
+            Route::get('settings/company', [AdminCompanySettingsController::class, 'show']);
+
             Route::get('photos/attendance/{attendance}/{type}', [PhotoController::class, 'attendance'])
                 ->whereIn('type', [
                     'start', 'end', 'start_thumb', 'end_thumb',
@@ -63,6 +75,11 @@ Route::prefix('v1')->group(function () {
             Route::put('shops/{shop}', [EmployeeShopController::class, 'update']);
             Route::delete('shops/{shop}', [EmployeeShopController::class, 'destroy']);
 
+            Route::get('shops/{shop}/credit', [EmployeeShopCreditController::class, 'index']);
+            Route::post('shops/{shop}/credit', [EmployeeShopCreditController::class, 'store']);
+            Route::put('credit/{entry}', [EmployeeShopCreditController::class, 'update']);
+            Route::delete('credit/{entry}', [EmployeeShopCreditController::class, 'destroy']);
+
             Route::get('attendance/today', [EmployeeAttendanceController::class, 'today']);
             Route::get('attendance/history', [EmployeeAttendanceController::class, 'history']);
             Route::post('attendance/start', [EmployeeAttendanceController::class, 'start'])
@@ -72,6 +89,12 @@ Route::prefix('v1')->group(function () {
             Route::post('attendance/pause', [EmployeeAttendanceController::class, 'pause']);
             Route::post('attendance/resume', [EmployeeAttendanceController::class, 'resume']);
             Route::get('attendance/{attendance}', [EmployeeAttendanceController::class, 'show']);
+
+            // The vehicle's own reading for a session, reviewed by the
+            // administrator before it counts as travelled kilometres.
+            Route::post('attendance/{attendance}/odometer', [EmployeeOdometerClaimController::class, 'store'])
+                ->middleware('throttle:uploads');
+            Route::get('odometer-claims', [EmployeeOdometerClaimController::class, 'index']);
 
             Route::post('tracking/batch', [EmployeeTrackingController::class, 'batch'])
                 ->middleware('throttle:tracking');
@@ -86,6 +109,8 @@ Route::prefix('v1')->group(function () {
                 ->middleware('throttle:uploads');
             Route::get('orders/{order}', [EmployeeOrderController::class, 'show']);
             Route::patch('orders/{order}/status', [EmployeeOrderController::class, 'updateStatus']);
+
+            Route::get('performance', EmployeePerformanceController::class);
 
             Route::post('device-token', [DeviceTokenController::class, 'store']);
             Route::delete('device-token', [DeviceTokenController::class, 'destroy']);
@@ -109,6 +134,10 @@ Route::prefix('v1')->group(function () {
             Route::get('attendance', [AdminAttendanceController::class, 'index']);
             Route::get('attendance/{attendance}', [AdminAttendanceController::class, 'show']);
 
+            Route::get('odometer-claims', [AdminOdometerClaimController::class, 'index']);
+            Route::post('odometer-claims/{odometerClaim}/approve', [AdminOdometerClaimController::class, 'approve']);
+            Route::post('odometer-claims/{odometerClaim}/reject', [AdminOdometerClaimController::class, 'reject']);
+
             Route::get('live-locations', [AdminLiveLocationController::class, 'index']);
 
             Route::get('visits', [AdminVisitController::class, 'index']);
@@ -116,7 +145,19 @@ Route::prefix('v1')->group(function () {
 
             Route::get('shops', [AdminShopController::class, 'index']);
             Route::get('shops/{shop}', [AdminShopController::class, 'show']);
+            Route::put('shops/{shop}', [AdminShopController::class, 'update']);
             Route::delete('shops/{shop}', [AdminShopController::class, 'destroy']);
+            Route::get('shops/{shop}/access', [AdminShopController::class, 'showAccess']);
+            Route::put('shops/{shop}/access', [AdminShopController::class, 'updateAccess']);
+
+            Route::post('credit-import/preview', [AdminTransactionImportController::class, 'preview']);
+            Route::post('credit-import/commit', [AdminTransactionImportController::class, 'commit']);
+            Route::get('credit-export', [AdminTransactionImportController::class, 'export']);
+
+            Route::get('shops/{shop}/credit', [AdminShopCreditController::class, 'index']);
+            Route::post('shops/{shop}/credit', [AdminShopCreditController::class, 'store']);
+            Route::put('credit/{entry}', [AdminShopCreditController::class, 'update']);
+            Route::delete('credit/{entry}', [AdminShopCreditController::class, 'destroy']);
 
             Route::get('products', [AdminProductController::class, 'index']);
             Route::post('products', [AdminProductController::class, 'store']);
@@ -131,6 +172,15 @@ Route::prefix('v1')->group(function () {
             Route::get('reports/attendance', [AdminReportController::class, 'attendance']);
             Route::get('reports/distance', [AdminReportController::class, 'distance']);
             Route::get('reports/visits', [AdminReportController::class, 'visits']);
+            Route::get('reports/orders', [AdminReportController::class, 'orders']);
+            Route::get('reports/order-counts', [AdminReportController::class, 'orderCounts']);
+
+            Route::get('targets', [AdminTargetController::class, 'index']);
+            Route::put('targets', [AdminTargetController::class, 'update']);
+            Route::delete('targets/{target}', [AdminTargetController::class, 'destroy']);
+
+            // The header printed on every exported report and PDF.
+            Route::put('settings/company', [AdminCompanySettingsController::class, 'update']);
 
             Route::get('notifications', [AdminNotificationController::class, 'index']);
         });

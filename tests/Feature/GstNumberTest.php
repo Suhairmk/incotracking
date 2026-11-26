@@ -23,6 +23,7 @@ class GstNumberTest extends TestCase
             'name' => 'Sri Balaji Motors',
             'type' => 'dealer',
             'location_name' => 'Indiranagar',
+            'whatsapp_number' => '9845012345',
             'latitude' => 12.9716,
             'longitude' => 77.5946,
         ];
@@ -54,6 +55,7 @@ class GstNumberTest extends TestCase
             'name' => 'Bad GST Shop',
             'type' => 'shop',
             'location_name' => 'Whitefield',
+            'whatsapp_number' => '9845012345',
             'latitude' => 12.9716,
             'longitude' => 77.5946,
         ];
@@ -100,6 +102,7 @@ class GstNumberTest extends TestCase
             'name' => 'Branch Outlet',
             'type' => 'shop',
             'location_name' => 'Koramangala',
+            'whatsapp_number' => '9845012345',
             'latitude' => 12.93,
             'longitude' => 77.62,
             'gst_number' => self::VALID_GSTIN,

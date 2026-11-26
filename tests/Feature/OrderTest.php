@@ -65,13 +65,21 @@ class OrderTest extends TestCase
 
         $response->assertJsonPath('data.status', 'pending')
             ->assertJsonPath('data.status_label', 'Pending')
-            ->assertJsonPath('data.total_paise', 27500)
+            ->assertJsonPath('data.subtotal_paise', 27500)
+            ->assertJsonPath('data.tax_paise', 4950)
+            ->assertJsonPath('data.tax_rate_bp', 1800)
+            ->assertJsonPath('data.taxed', true)
+            ->assertJsonPath('data.business_date', now()->toDateString())
+            ->assertJsonPath('data.total_paise', 32450)
             ->assertJsonPath('data.shop.id', $this->shop->id)
             ->assertJsonPath('data.employee.id', $this->employee->id)
             ->assertJsonCount(2, 'data.items')
             ->assertJsonPath('data.items.0.product_name', 'Sunflower Oil 1L')
             ->assertJsonPath('data.items.0.line_total_paise', 20000)
-            ->assertJsonPath('data.items.1.line_total_paise', 7500);
+            ->assertJsonPath('data.items.0.line_tax_paise', 3600)
+            ->assertJsonPath('data.items.0.tax_rate_bp', 1800)
+            ->assertJsonPath('data.items.1.line_total_paise', 7500)
+            ->assertJsonPath('data.items.1.line_tax_paise', 1350);
 
         $orderNumber = $response->json('order_number') ?? $response->json('data.order_number');
         $this->assertMatchesRegularExpression('/^ORD-\d{8}-\d{6}$/', $orderNumber);
@@ -81,7 +89,11 @@ class OrderTest extends TestCase
             'shop_id' => $this->shop->id,
             'employee_id' => $this->employee->id,
             'status' => 'pending',
-            'total_paise' => 27500,
+            'total_paise' => 32450,
+            'subtotal_paise' => 27500,
+            'tax_paise' => 4950,
+            'tax_rate_bp' => 1800,
+            'business_date' => now()->toDateString(),
             'client_order_id' => $payload['client_order_id'],
         ]);
 
@@ -161,7 +173,10 @@ class OrderTest extends TestCase
         $payload['items'] = [['product_id' => $product->id, 'quantity' => 2, 'unit_price_paise' => 9000]];
 
         $response = $this->postJson('/api/v1/employee/orders', $payload)->assertCreated();
-        $this->assertSame(18000, $response->json('data.total_paise'));
+        // GST sits on top of the quoted price: 18000 + 18% = 21240.
+        $this->assertSame(18000, $response->json('data.subtotal_paise'));
+        $this->assertSame(3240, $response->json('data.tax_paise'));
+        $this->assertSame(21240, $response->json('data.total_paise'));
 
         // The catalogue reprices (or is retired) while the order sits in the
         // queue: the synced order still says what the agent sold it for.
@@ -169,7 +184,7 @@ class OrderTest extends TestCase
 
         $this->getJson('/api/v1/employee/orders/'.$response->json('data.id'))
             ->assertOk()
-            ->assertJsonPath('data.total_paise', 18000)
+            ->assertJsonPath('data.total_paise', 21240)
             ->assertJsonPath('data.items.0.unit_price_paise', 9000);
     }
 
@@ -202,6 +217,10 @@ class OrderTest extends TestCase
     {
         $other = User::factory()->create();
         $product = Product::factory()->create();
+
+        // The second executive places orders for the same shop, so the
+        // administrator has granted it to them.
+        $this->shop->staff()->attach($other->id);
 
         $place = function (User $who) use ($product): int {
             Sanctum::actingAs($who);
@@ -320,6 +339,27 @@ class OrderTest extends TestCase
         $this->patchJson("/api/v1/employee/orders/{$id}/status", ['status' => 'delivered'])
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['status']);
+    }
+
+    public function test_the_business_date_is_the_placement_day_in_the_company_timezone(): void
+    {
+        $product = Product::factory()->create();
+        Sanctum::actingAs($this->employee);
+
+        // 18:30 UTC on the 10th is 00:00 on the 11th in Asia/Kolkata, so the
+        // report groups the order into the next business day.
+        $payload = $this->orderPayload([
+            'device_created_at' => '2026-11-10T18:30:00Z',
+            'items' => [['product_id' => $product->id, 'quantity' => 1, 'unit_price_paise' => 1000]],
+        ]);
+
+        $response = $this->postJson('/api/v1/employee/orders', $payload)->assertCreated();
+
+        $this->assertSame('2026-11-11', $response->json('data.business_date'));
+        $this->assertDatabaseHas('orders', [
+            'client_order_id' => $payload['client_order_id'],
+            'business_date' => '2026-11-11',
+        ]);
     }
 
     public function test_the_dashboard_reports_the_pending_order_count(): void

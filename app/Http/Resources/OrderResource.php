@@ -18,6 +18,13 @@ class OrderResource extends JsonResource
             'status' => $this->status?->value,
             'status_label' => $this->status?->label(),
             'total_paise' => $this->total_paise,
+            // GST breakdown: pre-rollout orders keep subtotal = total and a
+            // zero rate, so clients can tell taxed from legacy rows apart.
+            'subtotal_paise' => $this->subtotal_paise,
+            'tax_paise' => $this->tax_paise,
+            'tax_rate_bp' => $this->tax_rate_bp,
+            'taxed' => $this->isTaxed(),
+            'business_date' => $this->business_date?->toDateString(),
             'notes' => $this->notes,
             'shop' => [
                 'id' => $this->shop?->id,

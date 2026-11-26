@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Employee\StoreShopRequest;
 use App\Http\Resources\ShopResource;
 use App\Models\Shop;
+use App\Models\User;
 use App\Rules\ValidGstin;
 use App\Support\Geo;
 use App\Support\Gstin;
+use App\Support\WhatsAppNumber;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,9 +18,10 @@ use Illuminate\Http\Request;
 class EmployeeShopController extends Controller
 {
     /**
-     * The shared directory: every signed-in user sees every shop, filtered by
-     * one free-text term (name or area), type, ownership and/or distance from
-     * a supplied position.
+     * The shared directory: every shop the signed-in executive has been
+     * granted (administrators: all of them), filtered by one free-text term
+     * (name or area), type, ownership and/or distance from a supplied
+     * position.
      */
     public function index(Request $request): JsonResponse
     {
@@ -32,7 +35,7 @@ class EmployeeShopController extends Controller
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $query = $this->filteredQuery($validated, $request->user()->id);
+        $query = $this->filteredQuery($validated, $request->user());
 
         $paginator = $query->paginate((int) ($validated['per_page'] ?? 20))->withQueryString();
 
@@ -61,12 +64,15 @@ class EmployeeShopController extends Controller
             'location_name' => trim($data['location_name']),
             'address' => $this->nullIfEmpty($data['address'] ?? null),
             'phone' => $this->nullIfEmpty($data['phone'] ?? null),
+            'whatsapp_number' => WhatsAppNumber::normalize($data['whatsapp_number'] ?? null),
             'notes' => $this->nullIfEmpty($data['notes'] ?? null),
             'gst_number' => Gstin::normalize($data['gst_number'] ?? null),
             'latitude_e7' => Geo::toE7((float) $data['latitude']),
             'longitude_e7' => Geo::toE7((float) $data['longitude']),
             'accuracy_meters' => isset($data['accuracy_meters']) ? (int) $data['accuracy_meters'] : null,
         ]);
+
+        // The model puts the author on the shop's access list as it saves.
 
         return response()->json([
             'data' => new ShopResource($shop->load('creator')),
@@ -89,7 +95,7 @@ class EmployeeShopController extends Controller
 
         $data = $request->validated();
 
-        $shop->update([
+        $attributes = [
             'name' => trim($data['name']),
             'type' => $data['type'],
             'location_name' => trim($data['location_name']),
@@ -100,7 +106,17 @@ class EmployeeShopController extends Controller
             'latitude_e7' => Geo::toE7((float) $data['latitude']),
             'longitude_e7' => Geo::toE7((float) $data['longitude']),
             'accuracy_meters' => isset($data['accuracy_meters']) ? (int) $data['accuracy_meters'] : null,
-        ]);
+        ];
+
+        // Only touched when the caller actually sent the field: an edit that
+        // never mentions the WhatsApp number (an older client, a partial
+        // save) must not wipe the one already on file. An explicit empty
+        // string still clears it.
+        if (array_key_exists('whatsapp_number', $data)) {
+            $attributes['whatsapp_number'] = WhatsAppNumber::normalize($data['whatsapp_number']);
+        }
+
+        $shop->update($attributes);
 
         return response()->json([
             'data' => new ShopResource($shop->fresh('creator')),
@@ -147,9 +163,18 @@ class EmployeeShopController extends Controller
     /**
      * @param  array<string, mixed>  $validated
      */
-    protected function filteredQuery(array $validated, ?int $viewerId = null): Builder
+    protected function filteredQuery(array $validated, User $viewer): Builder
     {
         $query = Shop::query()->with('creator');
+
+        // Administrators moderate the whole directory. Executives only ever
+        // receive the shops the administrator granted them, and never one
+        // hidden from the field — the same rule the policy applies to a
+        // single shop, so a list row can never lead to a 403 detail page.
+        if (! $viewer->isAdmin()) {
+            $query->where('is_visible_to_field', true)
+                ->whereHas('staff', fn (Builder $query) => $query->whereKey($viewer->id));
+        }
 
         // A single search term matches the shop name or the area it sits in,
         // so one search box covers both lookups. Grouped to keep the OR from
@@ -168,8 +193,8 @@ class EmployeeShopController extends Controller
 
         $query->when($validated['type'] ?? null, fn ($q, $type) => $q->where('type', $type));
 
-        if ($viewerId !== null && ($validated['mine'] ?? false)) {
-            $query->where('created_by', $viewerId);
+        if ($validated['mine'] ?? false) {
+            $query->where('created_by', $viewer->id);
         }
 
         if (isset($validated['latitude'], $validated['longitude'])) {

@@ -8,20 +8,32 @@ use App\Models\User;
 class ShopPolicy
 {
     /**
-     * Every active user may read the shared directory: the point of the
-     * directory is that executives see shops added by their colleagues too.
+     * Reading the shared directory: administrators see every entry, and
+     * executives see the ones the administrator has granted them — unless the
+     * shop has been hidden from the field entirely.
      */
     public function view(User $user, Shop $shop): bool
     {
-        return $user->is_active;
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        return $shop->is_visible_to_field && $this->assignedTo($user, $shop);
     }
 
     /**
-     * Executives manage their own entries; administrators manage all of them.
+     * Executives manage the shops they have been granted — the creator and
+     * anybody else the administrator listed; administrators manage all of
+     * them. A hidden shop is out of an executive's reach for editing too —
+     * they cannot see it, so they cannot change it.
      */
     public function update(User $user, Shop $shop): bool
     {
-        return $user->isAdmin() || $shop->created_by === $user->id;
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        return $shop->is_visible_to_field && $this->assignedTo($user, $shop);
     }
 
     public function delete(User $user, Shop $shop): bool
@@ -32,5 +44,35 @@ class ShopPolicy
     public function create(User $user): bool
     {
         return $user->isEmployee() || $user->isAdmin();
+    }
+
+    /**
+     * Reading the credit ledger follows shop access: administrators see
+     * every shop, executives only the ones granted to them.
+     */
+    public function viewCredit(User $user, Shop $shop): bool
+    {
+        return $user->isAdmin()
+            || ($shop->is_visible_to_field && $this->assignedTo($user, $shop));
+    }
+
+    /**
+     * Adding and correcting ledger entries: administrators anywhere,
+     * executives only on their own assigned shops.
+     */
+    public function updateCredit(User $user, Shop $shop): bool
+    {
+        return $user->isAdmin()
+            || ($shop->is_visible_to_field && $this->assignedTo($user, $shop));
+    }
+
+    /**
+     * Whether the executive may work with this shop at all: they created it,
+     * or the administrator listed them on it. Kept as one method so every
+     * shop-scoped feature follows the same access list.
+     */
+    private function assignedTo(User $user, Shop $shop): bool
+    {
+        return $shop->isAssignedTo($user);
     }
 }

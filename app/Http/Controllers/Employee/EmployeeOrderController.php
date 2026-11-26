@@ -8,9 +8,13 @@ use App\Http\Requests\Employee\StoreOrderRequest;
 use App\Http\Resources\OrderResource;
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\Shop;
+use App\Models\ShopCreditEntry;
 use App\Models\User;
 use App\Services\NotificationService;
 use App\Support\BusinessTime;
+use App\Support\Tax;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -75,6 +79,11 @@ class EmployeeOrderController extends Controller
         $created = false;
 
         if ($order === null) {
+            // Only a shop this executive may actually see can be ordered
+            // from. Checked here rather than in the request so a retried
+            // offline upload still lands after the shop was hidden.
+            $this->authorize('view', Shop::query()->findOrFail($data['shop_id']));
+
             try {
                 $order = DB::transaction(fn (): Order => $this->insertOrder($data, $actor->id));
                 $created = true;
@@ -220,9 +229,16 @@ class EmployeeOrderController extends Controller
             'notes' => filled($data['notes'] ?? null) ? trim($data['notes']) : null,
             'device_created_at' => $data['device_created_at'],
             'server_recorded_at' => now('UTC'),
+            // Grouping key for reports: the placement day in the company's
+            // timezone, not the server's UTC insert day.
+            'business_date' => CarbonImmutable::parse($data['device_created_at'])
+                ->setTimezone(BusinessTime::timezone())
+                ->toDateString(),
         ]);
 
-        $total = 0;
+        $rateBp = Tax::ORDER_RATE_BP;
+        $subtotal = 0;
+        $tax = 0;
 
         foreach ($data['items'] as $line) {
             $product = $products->get((int) $line['product_id']);
@@ -238,7 +254,11 @@ class EmployeeOrderController extends Controller
             $quantity = (int) $line['quantity'];
             $unitPrice = (int) $line['unit_price_paise'];
             $lineTotal = $quantity * $unitPrice;
-            $total += $lineTotal;
+            // GST is added on top of the quoted price, rounded per line so
+            // the invoice and the PDF always agree to the paisa.
+            $lineTax = Tax::lineTax($lineTotal, $rateBp);
+            $subtotal += $lineTotal;
+            $tax += $lineTax;
 
             $order->items()->create([
                 'product_id' => $product->id,
@@ -247,11 +267,16 @@ class EmployeeOrderController extends Controller
                 'unit_price_paise' => $unitPrice,
                 'quantity' => $quantity,
                 'line_total_paise' => $lineTotal,
+                'line_tax_paise' => $lineTax,
+                'tax_rate_bp' => $rateBp,
             ]);
         }
 
         $order->update([
-            'total_paise' => $total,
+            'total_paise' => $subtotal + $tax,
+            'subtotal_paise' => $subtotal,
+            'tax_paise' => $tax,
+            'tax_rate_bp' => $rateBp,
             // Built from the auto-increment id, so it is unique without a
             // sequence table and still sorts chronologically.
             'order_number' => sprintf(
@@ -259,6 +284,21 @@ class EmployeeOrderController extends Controller
                 str_replace('-', '', BusinessTime::today()),
                 $order->id,
             ),
+        ]);
+
+        // A new order is a credit sale for the shop: record the full amount
+        // owed (GST included) against it, dated by the business day. Existing
+        // pre-rollout orders are deliberately never backfilled.
+        ShopCreditEntry::create([
+            'shop_id' => $order->shop_id,
+            'type' => ShopCreditEntry::TYPE_SALE,
+            'amount_paise' => $order->total_paise,
+            'entry_date' => $order->business_date,
+            'reference' => $order->order_number,
+            'details' => 'Order '.$order->order_number,
+            'order_id' => $order->id,
+            'source' => ShopCreditEntry::SOURCE_ORDER,
+            'created_by' => $employeeId,
         ]);
 
         return $order->fresh();
@@ -287,6 +327,18 @@ class EmployeeOrderController extends Controller
         }
 
         $order->fill($attributes)->save();
+
+        if ($target === OrderStatus::Cancelled) {
+            // The credit sale never happened: withdraw the order's ledger row
+            // so the outstanding balance never counts a cancelled order.
+            // Deleted one by one so the soft-delete events (and the balance
+            // refresh they trigger) actually run.
+            ShopCreditEntry::query()
+                ->where('order_id', $order->id)
+                ->where('source', ShopCreditEntry::SOURCE_ORDER)
+                ->get()
+                ->each(fn (ShopCreditEntry $entry) => $entry->delete());
+        }
 
         return $order;
     }

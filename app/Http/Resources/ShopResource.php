@@ -17,8 +17,22 @@ class ShopResource extends JsonResource
             'location_name' => $this->location_name,
             'address' => $this->address,
             'phone' => $this->phone,
+            // Canonical digits with the country code — what the WhatsApp
+            // share actions dial. Null for shops recorded before this field
+            // existed or created by the bulk Excel import.
+            'whatsapp_number' => $this->whatsapp_number,
             'notes' => $this->notes,
             'gst_number' => $this->gst_number,
+            // Outstanding credit, kept in step with the ledger on every write.
+            'credit_balance_paise' => (int) ($this->credit_balance_paise ?? 0),
+            // Field visibility: administrators hide a shop from every
+            // executive's directory; only administrators ever see it then.
+            'is_visible_to_field' => (bool) $this->is_visible_to_field,
+            // Present only when the list was queried with the staff relation,
+            // so the directory never pays for it per row.
+            'assigned_employee_ids' => $this->relationLoaded('staff')
+                ? $this->staff->pluck('id')->map(fn ($id): int => (int) $id)->values()->all()
+                : null,
             'latitude' => Geo::fromE7($this->latitude_e7),
             'longitude' => Geo::fromE7($this->longitude_e7),
             'accuracy_meters' => $this->accuracy_meters,

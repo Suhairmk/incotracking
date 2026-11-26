@@ -29,6 +29,10 @@ class OrderItemFactory extends Factory
             'unit_price_paise' => $unitPrice,
             'quantity' => $quantity,
             'line_total_paise' => $quantity * $unitPrice,
+            // Zero unless the test asks for a taxed line explicitly, which
+            // mirrors orders placed before the GST rollout.
+            'line_tax_paise' => 0,
+            'tax_rate_bp' => 0,
         ];
     }
 }
